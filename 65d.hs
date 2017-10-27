@@ -1,5 +1,5 @@
 import Data.Word
-import Data.List (head, find)
+import Data.List (head, find, intercalate)
 import Data.Maybe
 import Data.ByteString (readFile, unpack)
 import Control.Monad
@@ -25,83 +25,89 @@ data OperationSpec = OperationSpec {
     opcode :: Word8    
 } deriving Show
 
+data DisassemblyToken = DisassemblyToken {
+    tokenInstruction :: Instruction,
+    tokenRaw :: [Word8],
+    tokenOffset :: Int
+} deriving Show
+
 spec = [
-    OperationSpec "ADC" "Immediate"   0x69,
-    OperationSpec "ADC" "ZeroPage"    0x65,
-    OperationSpec "ADC" "ZeroPageX"   0x75,
-    OperationSpec "ADC" "Absolute"    0x6D,
-    OperationSpec "ADC" "AbsoluteX"   0x7D,
-    OperationSpec "ADC" "AbsoluteY"   0x79,
-    OperationSpec "ADC" "IndirectX"   0x61,
-    OperationSpec "ADC" "IndirectY"   0x71,
+    OperationSpec "ADC" "Immediate"   0x69, -- 011 010 01
+    OperationSpec "ADC" "ZeroPage"    0x65, -- 011 001 01
+    OperationSpec "ADC" "ZeroPageX"   0x75, -- 011 101 01
+    OperationSpec "ADC" "Absolute"    0x6D, -- 011 011 01
+    OperationSpec "ADC" "AbsoluteX"   0x7D, -- 011 111 01
+    OperationSpec "ADC" "AbsoluteY"   0x79, -- 011 110 01
+    OperationSpec "ADC" "IndirectX"   0x61, -- 011 000 01
+    OperationSpec "ADC" "IndirectY"   0x71, -- 011 100 01
 
-    OperationSpec "AND" "Immediate"   0x29,
-    OperationSpec "AND" "ZeroPage"    0x25,
-    OperationSpec "AND" "ZeroPageX"   0x35,
-    OperationSpec "AND" "Absolute"    0x2D,
-    OperationSpec "AND" "AbsoluteX"   0x3D,
-    OperationSpec "AND" "AbsoluteY"   0x39,
-    OperationSpec "AND" "IndirectX"   0x21,
-    OperationSpec "AND" "IndirectY"   0x31,
+    OperationSpec "AND" "Immediate"   0x29, -- 001 010 01
+    OperationSpec "AND" "ZeroPage"    0x25, -- 001 001 01
+    OperationSpec "AND" "ZeroPageX"   0x35, -- 001 101 01
+    OperationSpec "AND" "Absolute"    0x2D, -- 001 011 01
+    OperationSpec "AND" "AbsoluteX"   0x3D, -- 001 111 01
+    OperationSpec "AND" "AbsoluteY"   0x39, -- 001 110 01
+    OperationSpec "AND" "IndirectX"   0x21, -- 001 000 01
+    OperationSpec "AND" "IndirectY"   0x31, -- 001 100 01
 
-    OperationSpec "ASL" "Accumulator" 0x0A,
-    OperationSpec "ASL" "ZeroPage"    0x06,
-    OperationSpec "ASL" "ZeroPageX"   0x16,
-    OperationSpec "ASL" "Absolute"    0x0E,
-    OperationSpec "ASL" "AbsoluteX"   0x1E,
+    OperationSpec "ASL" "Accumulator" 0x0A, -- 000 010 10
+    OperationSpec "ASL" "ZeroPage"    0x06, -- 000 001 10
+    OperationSpec "ASL" "ZeroPageX"   0x16, -- 000 101 10
+    OperationSpec "ASL" "Absolute"    0x0E, -- 000 011 10
+    OperationSpec "ASL" "AbsoluteX"   0x1E, -- 000 111 10
 
-    OperationSpec "BIT" "ZeroPage"    0x24,
-    OperationSpec "BIT" "Absolute"    0x2C,
+    OperationSpec "BIT" "ZeroPage"    0x24, -- 001 001 00
+    OperationSpec "BIT" "Absolute"    0x2C, -- 001 011 00
 
-    OperationSpec "BPL" "Immediate"   0x10,
-    OperationSpec "BMI" "Immediate"   0x30,
-    OperationSpec "BVC" "Immediate"   0x50,
-    OperationSpec "BVS" "Immediate"   0x70,
-    OperationSpec "BCC" "Immediate"   0x90,
-    OperationSpec "BCS" "Immediate"   0xB0,
-    OperationSpec "BNE" "Immediate"   0xD0,
-    OperationSpec "BEQ" "Immediate"   0xF0,
+    OperationSpec "BPL" "Immediate"   0x10, -- 000 100 00
+    OperationSpec "BMI" "Immediate"   0x30, -- 001 100 00
+    OperationSpec "BVC" "Immediate"   0x50, -- 010 100 00
+    OperationSpec "BVS" "Immediate"   0x70, -- 011 100 00
+    OperationSpec "BCC" "Immediate"   0x90, -- 100 100 00
+    OperationSpec "BCS" "Immediate"   0xB0, -- 101 100 00
+    OperationSpec "BNE" "Immediate"   0xD0, -- 110 100 00
+    OperationSpec "BEQ" "Immediate"   0xF0, -- 111 100 00
 
-    OperationSpec "BRK" "Implied"     0x00,
+    OperationSpec "BRK" "Implied"     0x00, -- 0000 0000
 
-    OperationSpec "CMP" "Immediate"   0xC9,
-    OperationSpec "CMP" "ZeroPage"    0xC5,
-    OperationSpec "CMP" "ZeroPageX"   0xD5,
-    OperationSpec "CMP" "Absolute"    0xCD,
-    OperationSpec "CMP" "AbsoluteX"   0xDD,
-    OperationSpec "CMP" "AbsoluteY"   0xD9,
-    OperationSpec "CMP" "IndirectX"   0xC1,
-    OperationSpec "CMP" "IndirectY"   0xD1,
+    OperationSpec "CMP" "Immediate"   0xC9, -- 110 010 01
+    OperationSpec "CMP" "ZeroPage"    0xC5, -- 110 001 01
+    OperationSpec "CMP" "ZeroPageX"   0xD5, -- 110 101 01
+    OperationSpec "CMP" "Absolute"    0xCD, -- 110 011 01
+    OperationSpec "CMP" "AbsoluteX"   0xDD, -- 110 111 01
+    OperationSpec "CMP" "AbsoluteY"   0xD9, -- 110 110 01
+    OperationSpec "CMP" "IndirectX"   0xC1, -- 110 000 01
+    OperationSpec "CMP" "IndirectY"   0xD1, -- 110 100 01
 
-    OperationSpec "CPX" "Immediate"   0xE0,
-    OperationSpec "CPX" "ZeroPage"    0xE4,
-    OperationSpec "CPX" "Absolute"    0xEC,
+    OperationSpec "CPX" "Immediate"   0xE0, -- 111 000 00
+    OperationSpec "CPX" "ZeroPage"    0xE4, -- 111 001 00
+    OperationSpec "CPX" "Absolute"    0xEC, -- 111 011 00
 
-    OperationSpec "CPY" "Immediate"   0xC0,
-    OperationSpec "CPY" "ZeroPage"    0xC4,
-    OperationSpec "CPY" "Absolute"    0xCC,
+    OperationSpec "CPY" "Immediate"   0xC0, -- 110 000 00
+    OperationSpec "CPY" "ZeroPage"    0xC4, -- 110 001 00
+    OperationSpec "CPY" "Absolute"    0xCC, -- 110 011 00
 
-    OperationSpec "DEC" "ZeroPage"    0xC6,
-    OperationSpec "DEC" "ZeroPageX"   0xD6,
-    OperationSpec "DEC" "Absolute"    0xCE,
-    OperationSpec "DEC" "AbsoluteX"   0xDE,
+    OperationSpec "DEC" "ZeroPage"    0xC6, -- 110 001 10
+    OperationSpec "DEC" "ZeroPageX"   0xD6, -- 110 101 10
+    OperationSpec "DEC" "Absolute"    0xCE, -- 110 011 10
+    OperationSpec "DEC" "AbsoluteX"   0xDE, -- 110 111 10
 
-    OperationSpec "EOR" "Immediate"   0x49,
-    OperationSpec "EOR" "ZeroPage"    0x45,
-    OperationSpec "EOR" "ZeroPageX"   0x55,
-    OperationSpec "EOR" "Absolute"    0x4D,
-    OperationSpec "EOR" "AbsoluteX"   0x5D,
-    OperationSpec "EOR" "AbsoluteY"   0x59,
-    OperationSpec "EOR" "IndirectX"   0x41,
-    OperationSpec "EOR" "IndirectY"   0x51,
+    OperationSpec "EOR" "Immediate"   0x49, -- 010 010 01
+    OperationSpec "EOR" "ZeroPage"    0x45, -- 010 001 01
+    OperationSpec "EOR" "ZeroPageX"   0x55, -- 010 101 01
+    OperationSpec "EOR" "Absolute"    0x4D, -- 010 011 01
+    OperationSpec "EOR" "AbsoluteX"   0x5D, -- 010 111 01
+    OperationSpec "EOR" "AbsoluteY"   0x59, -- 010 110 01
+    OperationSpec "EOR" "IndirectX"   0x41, -- 010 000 01
+    OperationSpec "EOR" "IndirectY"   0x51, -- 010 100 01
 
-    OperationSpec "CLC" "Implied"     0x18,
-    OperationSpec "SEC" "Implied"     0x38,
-    OperationSpec "CLI" "Implied"     0x58,
-    OperationSpec "SEI" "Implied"     0x78,
-    OperationSpec "CLV" "Implied"     0xB8,
-    OperationSpec "CLD" "Implied"     0xD8,
-    OperationSpec "SED" "Implied"     0xF8,
+    OperationSpec "CLC" "Implied"     0x18, -- 000 110 00
+    OperationSpec "SEC" "Implied"     0x38, -- 001 110 00
+    OperationSpec "CLI" "Implied"     0x58, -- 010 110 00
+    OperationSpec "SEI" "Implied"     0x78, -- 011 110 00
+    OperationSpec "CLV" "Implied"     0xB8, -- 101 110 00
+    OperationSpec "CLD" "Implied"     0xD8, -- 110 110 00
+    OperationSpec "SED" "Implied"     0xF8, -- 111 110 00
 
     OperationSpec "INC" "ZeroPage"    0xE6,
     OperationSpec "INC" "ZeroPageX"   0xF6,
@@ -151,14 +157,24 @@ spec = [
     OperationSpec "ORA" "IndirectX"   0x01,
     OperationSpec "ORA" "IndirectY"   0x11,
 
-    OperationSpec "TAX" "Implied"     0xAA,
-    OperationSpec "TXA" "Implied"     0x8A,
-    OperationSpec "DEX" "Implied"     0xCA,
-    OperationSpec "INX" "Implied"     0xE8,
-    OperationSpec "TAY" "Implied"     0xA8,
-    OperationSpec "TYA" "Implied"     0x98,
-    OperationSpec "DEY" "Implied"     0x88,
-    OperationSpec "INY" "Implied"     0xC8,
+    OperationSpec "TAX" "Implied"     0xAA, -- 1010 10 10
+    OperationSpec "TXA" "Implied"     0x8A, -- 1000 10 10
+    OperationSpec "TAY" "Implied"     0xA8, -- 1010 10 00
+    OperationSpec "TYA" "Implied"     0x98, -- 1001 10 00
+    OperationSpec "TSX" "Implied"     0xBA, -- 1011 10 10
+    OperationSpec "TXS" "Implied"     0x9A, -- 1001 10 10
+    
+    OperationSpec "DEX" "Implied"     0xCA, -- 110 010 10
+    OperationSpec "INX" "Implied"     0xE8, -- 111 010 00
+    OperationSpec "DEY" "Implied"     0x88, -- 100 010 00
+    OperationSpec "INY" "Implied"     0xC8, -- 110 010 00
+    OperationSpec "PHA" "Implied"     0x48, -- 010 010 00
+    OperationSpec "PLA" "Implied"     0x68, -- 011 010 00
+    OperationSpec "PHP" "Implied"     0x08, -- 000 010 00
+    OperationSpec "PLP" "Implied"     0x28, -- 001 010 00
+
+    OperationSpec "RTI" "Implied"     0x40, -- 010 000 00
+    OperationSpec "RTS" "Implied"     0x60, -- 011 000 00
 
     OperationSpec "ROL" "Accumulator" 0x2A,
     OperationSpec "ROL" "ZeroPage"    0x26,
@@ -171,9 +187,6 @@ spec = [
     OperationSpec "ROR" "ZeroPageX"   0x76,
     OperationSpec "ROR" "Absolute"    0x6E,
     OperationSpec "ROR" "AbsoluteX"   0x7E,
-
-    OperationSpec "RTI" "Implied"     0x40,
-    OperationSpec "RTS" "Implied"     0x60,
 
     OperationSpec "SBC" "Immediate"   0xE9,
     OperationSpec "SBC" "ZeroPage"    0xE5,
@@ -191,13 +204,6 @@ spec = [
     OperationSpec "STA" "AbsoluteY"   0x99,
     OperationSpec "STA" "IndirectX"   0x81,
     OperationSpec "STA" "IndirectY"   0x91,
-
-    OperationSpec "TXS" "Implied"     0x9A,
-    OperationSpec "TSX" "Implied"     0xBA,
-    OperationSpec "PHA" "Implied"     0x48,
-    OperationSpec "PLA" "Implied"     0x68,
-    OperationSpec "PHP" "Implied"     0x08,
-    OperationSpec "PLP" "Implied"     0x28,
 
     OperationSpec "STX" "ZeroPage"    0x86,
     OperationSpec "STX" "ZeroPageY"   0x96,
@@ -258,41 +264,57 @@ param _ = []
 toMachine :: Instruction -> [Word8]
 toMachine inst = (fromMaybe 0 $ opcodeFor inst) : (param $ addressing inst)
 
-readInstruction :: [Word8] -> (Instruction, [Word8])
-readInstruction buffer = 
+readInstruction :: [Word8] -> Int -> (DisassemblyToken, [Word8])
+readInstruction buffer off = 
     let opspec = specFor $ head buffer
         psize = getAddressingSize $ modeName opspec
         tbuffer = tail buffer
         instruction = Instruction (operationName opspec) (buildAddressingMode (modeName opspec) (take psize tbuffer))
-    in (instruction, drop psize tbuffer)
+    in (DisassemblyToken instruction (take (psize + 1) buffer) off, (drop psize tbuffer))
 
-readNInstructions :: Int -> [Word8] -> ([Instruction], [Word8])
-readNInstructions 0 buffer = ([], buffer)
-readNInstructions n buffer = 
-    let (i, tbuf) = readInstruction buffer
-        (l, ttbuf) = readNInstructions (n - 1) tbuf
-    in (i : l, ttbuf)
+readNInstructions :: Int -> Int -> [Word8] -> ([DisassemblyToken], [Word8])
+readNInstructions 0 _   buffer = ([], buffer)
+readNInstructions n off buffer = 
+    let (t, tbuf) = readInstruction buffer off
+        (l, ttbuf) = readNInstructions (n - 1) (off + (length $ tokenRaw t)) tbuf
+    in (t : l, ttbuf)
 
-toAsm :: Instruction -> String
-toAsm (Instruction op adm) = op ++ " " ++ (toAsmADM adm)
+formatChunk :: Int -> [Word8] -> String
+formatChunk cols bytes = printf "%-*s" cols $ intercalate " " (map (printf "%02x") bytes)
 
-toAsmADM :: AddressingMode -> String
-toAsmADM (Immediate i) = printf "#$%02x" i
-toAsmADM (ZeroPage o) = printf "$%02x" o
-toAsmADM (ZeroPageX o) = printf "$%02x, X" o
-toAsmADM (Absolute (a, b)) = printf "$%02x%02x" a b
-toAsmADM (AbsoluteX (a, b)) = printf "$%02x%02x, X" a b
-toAsmADM (AbsoluteY (a, b)) = printf "$%02x%02x, Y" a b
-toAsmADM (IndirectX o) = printf "($%02x, X)" o
-toAsmADM (IndirectY o) = printf "($%02x), Y" o
-toAsmADM _ = ""
+formatToken :: DisassemblyToken -> String
+formatToken t = (printf "%04x  " $ tokenOffset t) ++ (formatChunk 10 $ tokenRaw t) ++ (formatAsm $ tokenInstruction t) ++ (formatHint t)
+
+formatHint :: DisassemblyToken -> String
+formatHint t = let target = (tokenOffset t) + (fromIntegral $ head $ param $ addressing $ tokenInstruction t) + 2 - 0x100 in
+    if elem (operation $ tokenInstruction t) ["BPL", "BMI", "BVC", "BVS", "BCC", "BCS", "BNE", "BEQ"] 
+    then printf " (%04x)" target
+    else ""
+
+formatAsm :: Instruction -> String
+formatAsm (Instruction op adm) = op ++ " " ++ (formatAsmADM adm)
+
+formatAsmADM :: AddressingMode -> String
+formatAsmADM (Immediate i) = printf "#$%02x" i
+formatAsmADM (ZeroPage o) = printf "$%02x" o
+formatAsmADM (ZeroPageX o) = printf "$%02x, X" o
+formatAsmADM (Absolute (a, b)) = printf "$%02x%02x" a b
+formatAsmADM (AbsoluteX (a, b)) = printf "$%02x%02x, X" a b
+formatAsmADM (AbsoluteY (a, b)) = printf "$%02x%02x, Y" a b
+formatAsmADM (IndirectX o) = printf "($%02x, X)" o
+formatAsmADM (IndirectY o) = printf "($%02x), Y" o
+formatAsmADM _ = ""
 
 disassembleBuffer :: [Word8] -> [String]
-disassembleBuffer buf = let (is, _) = readNInstructions 128 buf in
-    map toAsm is
+disassembleBuffer buf = let (is, _) = readNInstructions 128 0xe000 buf in
+    map formatToken is
+
+disassembleFile :: String -> IO [String]
+disassembleFile filename = do
+    fcBS <- Data.ByteString.readFile filename
+    return $ disassembleBuffer (drop 16 $ Data.ByteString.unpack fcBS)
 
 main :: IO ()
 main = do
     args <- getArgs
-    fcBS <- Data.ByteString.readFile $ head args
-    putStr $ unlines $ disassembleBuffer (drop 16 $ Data.ByteString.unpack fcBS)
+    unlines <$> disassembleFile (head args) >>= putStr
