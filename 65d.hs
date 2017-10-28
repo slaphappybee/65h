@@ -21,7 +21,7 @@ data Instruction = Instruction {
 } deriving Show
 
 data DisassemblyToken = DisassemblyToken {
-    tokenInstruction :: Instruction,
+    tokenInstruction :: Maybe Instruction,
     tokenRaw :: [Word8],
     tokenOffset :: Int
 } deriving Show
@@ -72,11 +72,11 @@ toMachine inst = (fromMaybe 0 $ opcodeFor inst) : (param $ addressing inst)
 
 readInstruction :: [Word8] -> Int -> (DisassemblyToken, [Word8])
 readInstruction buffer off = 
-    let opcode = fromJust $ decode $ head buffer
-        psize = getAddressingSize $ opcodeMode opcode
-        tbuffer = tail buffer
-        instruction = Instruction (opcodeName opcode) $ buildAddressingMode (opcodeMode opcode) (take psize tbuffer)
-    in (DisassemblyToken instruction (take (psize + 1) buffer) off, (drop psize tbuffer))
+    let mOpcode = decode $ head buffer
+        tBuffer = tail buffer
+        paramSize = maybe 0 (\opcode -> getAddressingSize $ opcodeMode opcode) mOpcode
+        getInstruction = \opcode -> Instruction (opcodeName opcode) $ buildAddressingMode (opcodeMode opcode) (take paramSize tBuffer)
+    in (DisassemblyToken (fmap getInstruction $ mOpcode) (take (paramSize + 1) buffer) off, (drop paramSize tBuffer))
 
 readNInstructions :: Int -> Int -> [Word8] -> ([DisassemblyToken], [Word8])
 readNInstructions 0 _   buffer = ([], buffer)
@@ -92,13 +92,15 @@ formatToken :: DisassemblyToken -> String
 formatToken t = (printf "%04x  " $ tokenOffset t) ++ (formatChunk 10 $ tokenRaw t) ++ (formatAsm $ tokenInstruction t) ++ (formatHint t)
 
 formatHint :: DisassemblyToken -> String
-formatHint t = let target = (tokenOffset t) + (fromIntegral $ head $ param $ addressing $ tokenInstruction t) + 2 - 0x100 in
-    if elem (operation $ tokenInstruction t) ["BPL", "BMI", "BVC", "BVS", "BCC", "BCS", "BNE", "BEQ"] 
+formatHint (DisassemblyToken Nothing _ _) = ""
+formatHint t = let target = (tokenOffset t) + (fromIntegral $ head $ param $ addressing $ fromJust $ tokenInstruction t) + 2 - 0x100 in
+    if elem (operation $ fromJust $ tokenInstruction t) ["BPL", "BMI", "BVC", "BVS", "BCC", "BCS", "BNE", "BEQ"] 
     then printf " (%04x)" target
     else ""
 
-formatAsm :: Instruction -> String
-formatAsm (Instruction op adm) = op ++ " " ++ (formatAsmADM adm)
+formatAsm :: Maybe Instruction -> String
+formatAsm Nothing = ""
+formatAsm (Just (Instruction op adm)) = op ++ " " ++ (formatAsmADM adm)
 
 formatAsmADM :: AddressingMode -> String
 formatAsmADM (Immediate i) = printf "#$%02x" i
