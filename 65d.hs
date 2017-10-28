@@ -1,3 +1,4 @@
+import Data.Char (chr)
 import Data.Word
 import Data.List (head, find, intercalate)
 import Data.Maybe
@@ -10,9 +11,9 @@ import Spec
 type Operation = String
 
 data AddressingMode = Immediate Word8 | Implied | Accumulator 
-    | ZeroPage Word8 | ZeroPageX Word8 
-    | Absolute (Word8, Word8) | AbsoluteX (Word8, Word8) | AbsoluteY (Word8, Word8) 
-    | IndirectX Word8 | IndirectY Word8 
+    | ZeroPage Word8 | ZeroPageX Word8 | ZeroPageY Word8
+    | Absolute (Word8, Word8) | AbsoluteX (Word8, Word8) | AbsoluteY (Word8, Word8)
+    | Indirect (Word8, Word8) | IndirectX Word8 | IndirectY Word8
     deriving Show
 
 data Instruction = Instruction {
@@ -38,31 +39,38 @@ getAddressingSize "Implied"     = 0
 getAddressingSize "Immediate"   = 1
 getAddressingSize "ZeroPage"    = 1
 getAddressingSize "ZeroPageX"   = 1
+getAddressingSize "ZeroPageY"   = 1
 getAddressingSize "Absolute"    = 2
 getAddressingSize "AbsoluteX"   = 2
 getAddressingSize "AbsoluteY"   = 2
+getAddressingSize "Indirect"    = 2
 getAddressingSize "IndirectX"   = 1
 getAddressingSize "IndirectY"   = 1
 
-buildAddressingMode :: String -> [Word8] -> AddressingMode
-buildAddressingMode "Accumulator" []     = Accumulator
-buildAddressingMode "Implied"     []     = Implied
-buildAddressingMode "Immediate"   [o]    = Immediate o
-buildAddressingMode "ZeroPage"    [o]    = ZeroPage o
-buildAddressingMode "ZeroPageX"   [o]    = ZeroPageX o
-buildAddressingMode "Absolute"    [b, a] = Absolute (a, b)
-buildAddressingMode "AbsoluteX"   [b, a] = AbsoluteX (a, b)
-buildAddressingMode "AbsoluteY"   [b, a] = AbsoluteY (a, b)
-buildAddressingMode "IndirectX"   [o]    = IndirectX o
-buildAddressingMode "IndirectY"   [o]    = IndirectY o
+buildAddressingMode :: String -> [Word8] -> Maybe AddressingMode
+buildAddressingMode "Accumulator" []     = Just Accumulator
+buildAddressingMode "Implied"     []     = Just Implied
+buildAddressingMode "Immediate"   [o]    = Just (Immediate o)
+buildAddressingMode "ZeroPage"    [o]    = Just (ZeroPage  o)
+buildAddressingMode "ZeroPageX"   [o]    = Just (ZeroPageX o)
+buildAddressingMode "ZeroPageY"   [o]    = Just (ZeroPageY o)
+buildAddressingMode "Absolute"    [b, a] = Just (Absolute  (a, b))
+buildAddressingMode "AbsoluteX"   [b, a] = Just (AbsoluteX (a, b))
+buildAddressingMode "AbsoluteY"   [b, a] = Just (AbsoluteY (a, b))
+buildAddressingMode "Indirect"    [b, a] = Just (Indirect  (a, b))
+buildAddressingMode "IndirectX"   [o]    = Just (IndirectX o)
+buildAddressingMode "IndirectY"   [o]    = Just (IndirectY o)
+buildAddressingMode _             _      = Nothing
 
 param :: AddressingMode -> [Word8]
 param (Immediate i) = [i]
 param (ZeroPage o) = [o]
 param (ZeroPageX o) = [o]
+param (ZeroPageY o) = [o]
 param (Absolute (a, b)) = [a, b]
 param (AbsoluteX (a, b)) = [a, b]
 param (AbsoluteY (a, b)) = [a, b]
+param (Indirect (a, b)) = [a, b]
 param (IndirectX o) = [o]
 param (IndirectY o) = [o]
 param _ = []
@@ -75,8 +83,8 @@ readInstruction buffer off =
     let mOpcode = decode $ head buffer
         tBuffer = tail buffer
         paramSize = maybe 0 (\opcode -> getAddressingSize $ opcodeMode opcode) mOpcode
-        getInstruction = \opcode -> Instruction (opcodeName opcode) $ buildAddressingMode (opcodeMode opcode) (take paramSize tBuffer)
-    in (DisassemblyToken (fmap getInstruction $ mOpcode) (take (paramSize + 1) buffer) off, (drop paramSize tBuffer))
+        getInstruction = \opcode -> Instruction (opcodeName opcode) <$> buildAddressingMode (opcodeMode opcode) (take paramSize tBuffer)
+    in (DisassemblyToken (getInstruction =<< mOpcode) (take (paramSize + 1) buffer) off, (drop paramSize tBuffer))
 
 readNInstructions :: Int -> Int -> [Word8] -> ([DisassemblyToken], [Word8])
 readNInstructions 0 _   buffer = ([], buffer)
@@ -84,6 +92,13 @@ readNInstructions n off buffer =
     let (t, tbuf) = readInstruction buffer off
         (l, ttbuf) = readNInstructions (n - 1) (off + (length $ tokenRaw t)) tbuf
     in (t : l, ttbuf)
+
+readAllInstructions :: Int -> [Word8] -> [DisassemblyToken]
+readAllInstructions _  []     = []
+readAllInstructions off buffer =
+    let (tok, tBuffer) = readInstruction buffer off
+        toks = readAllInstructions (off + (length $ tokenRaw tok)) tBuffer
+    in (tok : toks)
 
 formatChunk :: Int -> [Word8] -> String
 formatChunk cols bytes = printf "%-*s" cols $ intercalate " " (map (printf "%02x") bytes)
@@ -114,13 +129,34 @@ formatAsmADM (IndirectY o) = printf "($%02x), Y" o
 formatAsmADM _ = ""
 
 disassembleBuffer :: [Word8] -> [String]
-disassembleBuffer buf = let (is, _) = readNInstructions 128 0xe000 buf in
+disassembleBuffer buf = let is = readAllInstructions 0xe000 buf in
     map formatToken is
 
 disassembleFile :: String -> IO [String]
 disassembleFile filename = do
     fcBS <- Data.ByteString.readFile filename
-    return $ disassembleBuffer (drop 16 $ Data.ByteString.unpack fcBS)
+    let buffer = Data.ByteString.unpack fcBS
+    let header = readHeader buffer
+    let prgRomSize = 1024 * inesPRGRomSizeKb header
+    return $ (formatHeader header) ++ (disassembleBuffer $ ((drop 16) . (take prgRomSize)) buffer)
+
+data INESHeader = INESHeader {
+    inesSignature :: String,
+    inesPRGRomSizeKb :: Int,
+    inesCHRRomSizeKb :: Int,
+    inesPRGRamSizeKb :: Int,
+    inesFlags :: (Int, Int, Int, Int)
+} deriving Show
+
+readHeader :: [Word8] -> INESHeader
+readHeader buffer = let (i:n:e:s:po:co:f6:f7:pa:f8:f9:_) = fmap fromIntegral buffer
+    in INESHeader (fmap chr [i, n, e, s]) (po * 16) (co * 8) (pa * 8) (f6, f7, f8, f9)
+
+formatHeader :: INESHeader -> [String]
+formatHeader (INESHeader sig prgRomSize chrRomSize prgRamSize _) =
+    if sig /= "NES\x1A"
+        then ["Invalid Header"]
+        else [printf "INES v1 PRG ROM = %u Kb, CHR ROM = %u Kb, PRG RAM = %u Kb" prgRomSize chrRomSize prgRamSize]
 
 main :: IO ()
 main = do
