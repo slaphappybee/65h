@@ -2,10 +2,11 @@ module Spec (Opcode (Opcode), opcodeName, opcodeMode, decode, encode) where
 
 import Data.List (find)
 import Data.Word
+import Data.Char (toUpper)
 
 data Opcode = Opcode {
     opcodeName :: String,
-    opcodeMode :: String	
+    opcodeMode :: String
 }
 
 decode :: Word8 -> Maybe Opcode
@@ -15,7 +16,7 @@ decode b = do
 
 encode :: Opcode -> Maybe Word8
 encode (Opcode name mode) = fmap opcode (find pred spec)
-    where pred = \(OperationSpec sname smode _) -> (name == sname && mode == smode)
+    where pred = \(OperationSpec sname smode _) -> ((fmap toUpper name) == sname && mode == smode)
 
 data OperationSpec = OperationSpec {
     specName :: String,
