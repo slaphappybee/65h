@@ -1,4 +1,3 @@
-import Data.Char (chr)
 import Data.Word
 import Data.List (head, find, intercalate)
 import Data.Maybe
@@ -7,6 +6,7 @@ import Control.Monad
 import Text.Printf
 import System.Environment (getArgs)
 import Spec
+import INESFormat
 
 type Operation = String
 
@@ -139,18 +139,6 @@ disassembleFile filename = do
     let header = readHeader buffer
     let prgRomSize = 1024 * inesPRGRomSizeKb header
     return $ (formatHeader header) ++ (disassembleBuffer $ ((drop 16) . (take prgRomSize)) buffer)
-
-data INESHeader = INESHeader {
-    inesSignature :: String,
-    inesPRGRomSizeKb :: Int,
-    inesCHRRomSizeKb :: Int,
-    inesPRGRamSizeKb :: Int,
-    inesFlags :: (Int, Int, Int, Int)
-} deriving Show
-
-readHeader :: [Word8] -> INESHeader
-readHeader buffer = let (i:n:e:s:po:co:f6:f7:pa:f8:f9:_) = fmap fromIntegral buffer
-    in INESHeader (fmap chr [i, n, e, s]) (po * 16) (co * 8) (pa * 8) (f6, f7, f8, f9)
 
 formatHeader :: INESHeader -> [String]
 formatHeader (INESHeader sig prgRomSize chrRomSize prgRamSize _) =

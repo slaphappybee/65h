@@ -1,3 +1,10 @@
+module Assembler (
+    ObjectToken (Byte),
+    TokenBlock (TokenBlock),
+    assembleBlock,
+    resolveAll
+    ) where
+
 import Parser
 import Spec
 

@@ -1,15 +1,17 @@
+module Parser (
+    SubBlock (SubBlock),
+    Statement (InstructionStatement, MacroStatement),
+    MacroParameter (ParameterInstruction, ParameterValue),
+    Value (ValueLiteral, ValueIdentifier, ValueModifier),
+    Instruction (Instruction),
+    parseFile) where
+
 import Text.ParserCombinators.Parsec
 import Data.Maybe
 import Data.Char
 import Data.Word
 import Control.Monad
 import Control.Applicative ((<$>))
-
-data FileContents = FileContents [TopLevelDeclaration]
-    deriving Show
-
-data TopLevelDeclaration = SubDeclaration SubBlock
-    deriving Show
 
 data SubBlock = SubBlock String Word16 [Statement]
     deriving Show
@@ -92,8 +94,8 @@ subBlockP = SubBlock
     <*> ((char '=') *> spacesP *> (fromRight <$> literalValueP) <* spacesP <* newline)
     <*> ((many $ (try ((count 4 space) *> statementP <* newline) <* (many $ try blankLineP))))
 
-fileP :: GenParser Char st FileContents
-fileP = FileContents <$> many (SubDeclaration <$> subBlockP)
+fileP :: GenParser Char st [SubBlock]
+fileP = many subBlockP
 
-parseFile :: String -> IO (Either ParseError FileContents)
+parseFile :: String -> IO (Either ParseError [SubBlock])
 parseFile = parseFromFile fileP
