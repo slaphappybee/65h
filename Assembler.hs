@@ -1,8 +1,5 @@
 module Assembler (
-    ObjectToken (Byte),
-    TokenBlock (TokenBlock),
-    assembleBlock,
-    resolveAll
+    assemble
     ) where
 
 import Parser
@@ -77,3 +74,10 @@ resolveExpressions blocks = let symbols = fmap blockIdentity blocks in
 
 resolveAll :: [TokenBlock (String, Word16)] -> [TokenBlock Word16]
 resolveAll = resolveExpressions . (fmap resolveRelativeLocations)
+
+unbox :: TokenBlock Word16 -> (Word16, [Word8])
+unbox (TokenBlock id bs) = (id, unboxB <$> bs)
+    where unboxB t = case t of Byte b -> b
+
+assemble :: [SubBlock] -> [(Word16, [Word8])]
+assemble blocks = unbox <$> (resolveAll $ assembleBlock <$> blocks)
