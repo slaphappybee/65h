@@ -16,7 +16,7 @@ writeINESFile :: String -> [(Word16, [Word8])] -> IO ()
 writeINESFile filename prg = let
     headerRaw = generateHeader $ mkHeader 16 8 0
     prgRaw = buildPRG prg
-    chrRaw = replicate (8 * 1024) 0
+    chrRaw = [0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff]  ++ (replicate (8 * 1023) 0)
     bs = pack (headerRaw ++ prgRaw ++ chrRaw)
     in Data.ByteString.writeFile filename bs
 
@@ -33,7 +33,7 @@ buildPRG :: [(Word16, [Word8])] -> [Word8]
 buildPRG blocks = let
     compareFirsts = \a -> \b -> compare (fst a) (fst b)
     sortedBlocks = sortBy compareFirsts blocks in
-    buildImage (16 * 1024) 0xe000 blocks
+    buildImage (16 * 1024) 0xc000 blocks
 
 assembleFile :: String -> IO ()
 assembleFile filename = do

@@ -6,7 +6,7 @@ import Parser
 import Spec
 
 import Data.Word
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, maybeToList)
 import Data.List (find)
 
 data TokenBlock identity = TokenBlock {
@@ -44,25 +44,61 @@ splitReference (ExternalReference n) = [Reference $ LowByte (ExternalReference n
 encodeOpcode :: String -> String -> ObjectToken
 encodeOpcode s a = Byte $ fromJust $ encode (Opcode s a)
 
-assembleInstruction :: String -> Maybe Value -> [ObjectToken]
+fromImmediate :: Value -> ObjectToken
+fromImmediate (ValueLiteral (Left b))                  = Byte b
+fromImmediate (ValueModifier '<' (ValueIdentifier id)) = Reference $ LowByte  $ ExternalReference id
+fromImmediate (ValueModifier '>' (ValueIdentifier id)) = Reference $ HighByte $ ExternalReference id
+
+assembleInstruction :: String -> Maybe AddressingParameter -> [ObjectToken]
 assembleInstruction s Nothing = [encodeOpcode s "Implied"]
-assembleInstruction s (Just (ValueIdentifier identifier)) = encodeOpcode s "Absolute" : (splitReference $ ExternalReference identifier)
+assembleInstruction s (Just (AddressingAbsolute (ValueIdentifier identifier)))                  = encodeOpcode s "Absolute"  : (splitReference $ ExternalReference identifier)
+assembleInstruction s (Just (AddressingRelative (ValueIdentifier identifier) 'X'))              = encodeOpcode s "AbsoluteX" : (splitReference $ ExternalReference identifier)
+assembleInstruction s (Just (AddressingAbsolute (ValueModifier '#' imm)))                       = encodeOpcode s "Immediate" : [fromImmediate imm]
 
 encodeForBranch :: Instruction -> Int -> [ObjectToken]
 encodeForBranch (Instruction "jmp" Nothing) l = (Byte $ fromJust $ encode $ Opcode "JMP" "Absolute") : (splitReference $ RelativeLocation (0-l-1))
-encodeForBranch (Instruction bi    Nothing) l = (Byte $ fromJust $ encode $ Opcode bi   "Immediate") : [Byte $ fromIntegral (0-l)]
+encodeForBranch (Instruction bi    Nothing) l = (Byte $ fromJust $ encode $ Opcode bi   "Immediate") : [Byte $ fromIntegral (0-l-2)]
+
+pToSS :: MacroParameter -> [Statement]
+pToSS (ParameterInstruction i) = [InstructionStatement i]
+
+buildForLoop :: [Statement] -> MacroParameter -> [Statement] -> [Statement] -> [ObjectToken]
+buildForLoop s (ParameterInstruction b) i ss = initStatement ++ assembledBlock ++ (encodeForBranch b (length assembledBlock))
+    where
+        initStatement = concat $ map assembleStatement s
+        assembledBlock = concat $ map assembleStatement (ss ++ i)
 
 macroFor :: [MacroParameter] -> [Statement] -> [ObjectToken]
-macroFor [ParameterInstruction i] b = let assembledBlock = (concat $ map assembleStatement b) in
-    assembledBlock ++ (encodeForBranch i (length assembledBlock))
+macroFor [b]     ss = buildForLoop []        b []        ss
+macroFor [s,b,i] ss = buildForLoop (pToSS s) b (pToSS i) ss
 
-macroRaw16 :: [MacroParameter] -> [Statement] -> [ObjectToken]
-macroRaw16 [ParameterValue (ValueModifier '#' (ValueIdentifier identifier))] [] = (splitReference $ ExternalReference identifier)
+macroRaw8 :: [MacroParameter] -> [ObjectToken]
+macroRaw8 vals = fmap unboxImmediate8 vals
+    where unboxImmediate8 (ParameterValue (AddressingAbsolute (ValueModifier '#' (ValueLiteral (Left b))))) = Byte b
+
+macroRaw16 :: [MacroParameter] -> [ObjectToken]
+macroRaw16 [ParameterValue (AddressingAbsolute (ValueModifier '#' (ValueIdentifier identifier)))] = (splitReference $ ExternalReference identifier)
+
+macroTUA :: [MacroParameter] -> [ObjectToken]
+macroTUA [(ParameterValue dst),(ParameterValue src)] =
+    (assembleInstruction "LDA" (Just src)) ++
+    (assembleInstruction "STA" (Just dst))
+
+macroTUXIO :: [MacroParameter] -> [ObjectToken]
+macroTUXIO [(ParameterValue dst),(ParameterValue src)] =
+    (assembleInstruction "LDA" (Just (sliceImm '>' src))) ++
+    (assembleInstruction "STA" (Just dst)) ++
+    (assembleInstruction "LDA" (Just (sliceImm '<' src))) ++
+    (assembleInstruction "STA" (Just dst))
+    where sliceImm c (AddressingAbsolute (ValueModifier '#' imm)) = AddressingAbsolute (ValueModifier '#' (ValueModifier c imm))
 
 assembleStatement :: Statement -> [ObjectToken]
 assembleStatement (InstructionStatement (Instruction s p)) = assembleInstruction s p
 assembleStatement (MacroStatement "for" p b) = macroFor p b
-assembleStatement (MacroStatement "raw16" p b) = macroRaw16 p b
+assembleStatement (MacroStatement "raw8" p []) = macroRaw8 p
+assembleStatement (MacroStatement "raw16" p []) = macroRaw16 p
+assembleStatement (MacroStatement "tux_io" p []) = macroTUXIO p
+assembleStatement (MacroStatement "tua" p []) = macroTUA p
 
 assembleBlock :: SubBlock -> TokenBlock (String, Word16)
 assembleBlock (SubBlock n a ss) = TokenBlock (n, a) (concat $ fmap assembleStatement ss)
@@ -95,6 +131,7 @@ resolveAll symbols = (resolveExpressions symbols) . (fmap resolveRelativeLocatio
 
 processVar :: VariableDeclaration -> (String, Word16)
 processVar (VariableDeclaration Extern W8 name addr) = (name, addr)
+processVar (VariableDeclaration Const W16 name addr) = (name, addr)
 
 unbox :: TokenBlock Word16 -> (Word16, [Word8])
 unbox (TokenBlock id bs) = (id, unboxB <$> bs)

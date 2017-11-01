@@ -1,8 +1,9 @@
 module Parser (
     SubBlock (SubBlock),
     VariableDeclaration (VariableDeclaration),
-    VariableType (W8),
-    VariableAccess (Extern),
+    VariableType (W8, W16),
+    VariableAccess (Extern, Const),
+    AddressingParameter (AddressingAbsolute, AddressingRelative),
     TopLevelElement (ElementVariable, ElementSubBlock), partitionTopLevel,
     Statement (InstructionStatement, MacroStatement),
     MacroParameter (ParameterInstruction, ParameterValue),
@@ -31,13 +32,26 @@ data Statement =
     MacroStatement String [MacroParameter] [Statement]
     deriving Show
 
-data VariableAccess = Extern deriving Show
-data VariableType = W8 deriving Show
+data VariableAccess =
+    Extern |
+    Const
+    deriving Show
+
+data VariableType =
+    W8 |
+    W16
+    deriving Show
+
 data VariableDeclaration = VariableDeclaration VariableAccess VariableType String Word16 deriving Show
 
 data MacroParameter =
     ParameterInstruction Instruction |
-    ParameterValue Value
+    ParameterValue AddressingParameter
+    deriving Show
+
+data AddressingParameter =
+    AddressingAbsolute Value |
+    AddressingRelative Value Char
     deriving Show
 
 data Value = 
@@ -46,7 +60,7 @@ data Value =
     ValueModifier Char Value
     deriving Show
 
-data Instruction = Instruction String (Maybe Value)
+data Instruction = Instruction String (Maybe AddressingParameter)
     deriving Show
 
 type Parser a = IndentParser String () a
@@ -95,11 +109,11 @@ identifierP :: Parser String
 identifierP = (:) <$> letter <*> (manyN 3 (alphaNum <|> (char '_')))
 
 instructionP :: Parser Instruction
-instructionP = Instruction <$> (count 3 letter) <* spacesP <*> (optionMaybe valueP) <* spacesP
+instructionP = Instruction <$> (count 3 letter) <* spacesP <*> (optionMaybe addressingParameterP) <* spacesP
 
 macroBlockP :: Parser Statement
 macroBlockP = withBlock (\(name, params) -> \block -> MacroStatement name params block)
-    ((,) <$> ((char '+') *> macroNameP <* spacesP) <*> (many macroParameterP) <* spaces)
+    ((,) <$> ((char '+') *> macroNameP <* spacesP) <*> (many (macroParameterP <* spacesP)) <* spaces)
     (statementP <* spaces)
 
 statementP :: Parser Statement
@@ -110,6 +124,11 @@ statementP =
 literalValueP :: Parser (Either Word8 Word16)
 literalValueP = hexValue <$> ((char '$') *> (many1 hexDigit))
 
+addressingParameterP :: Parser AddressingParameter
+addressingParameterP = boxParam <$> valueP <*> optionMaybe (char ',' *> (oneOf "xyXY"))
+    where boxParam value Nothing = AddressingAbsolute value
+          boxParam value (Just r) = AddressingRelative value $ toUpper r
+
 valueP :: Parser Value
 valueP =
     ValueModifier <$> (char '#') <*> valueP <|>
@@ -118,7 +137,7 @@ valueP =
 
 macroParameterP :: Parser MacroParameter
 macroParameterP = 
-    ParameterValue <$> valueP <|> 
+    ParameterValue <$> addressingParameterP <|> 
     ParameterInstruction <$> instructionP
 
 subHeaderP = (string "sub ") *> spacesP *> identifierP <* spacesP
@@ -130,9 +149,10 @@ subBlockP = withBlock (\(name, addr) -> \block -> SubBlock name addr block)
     (statementP <* spaces)
 
 variableAccessP :: Parser VariableAccess
-variableAccessP = (string "extern") >> (return Extern)
+variableAccessP = ((string "extern") >> (return Extern)) <|> ((string "const") >> (return Const))
+
 variableTypeP :: Parser VariableType
-variableTypeP = (string "w8") >> (return W8)
+variableTypeP = ((try $ string "w8") >> (return W8)) <|> ((string "w16") >> (return W16))
 
 variableDeclarationP :: Parser VariableDeclaration
 variableDeclarationP = VariableDeclaration <$> (variableAccessP <* spacesP) <*> (variableTypeP <* spacesP) <*> (identifierP <* spacesP) <*> (char '=' *> spacesP *> (fromRight <$> literalValueP) <* nextLineP)
