@@ -5,11 +5,12 @@ sub reset = $e000
     sei
 
     +for bpl
+        lda ppu_status
 
-sub nmi_routine = $e006
+sub nmi_routine = $e007
     rti
 
-sub irq_routine = $e007
+sub irq_routine = $e008
     rti
 
 sub interrupts = $fffa

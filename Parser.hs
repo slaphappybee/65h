@@ -1,5 +1,9 @@
 module Parser (
     SubBlock (SubBlock),
+    VariableDeclaration (VariableDeclaration),
+    VariableType (W8),
+    VariableAccess (Extern),
+    TopLevelElement (ElementVariable, ElementSubBlock), partitionTopLevel,
     Statement (InstructionStatement, MacroStatement),
     MacroParameter (ParameterInstruction, ParameterValue),
     Value (ValueLiteral, ValueIdentifier, ValueModifier),
@@ -24,7 +28,7 @@ data SubBlock = SubBlock String Word16 [Statement]
 
 data Statement =
     InstructionStatement Instruction |
-    MacroStatement String [MacroParameter]
+    MacroStatement String [MacroParameter] [Statement]
     deriving Show
 
 data VariableAccess = Extern deriving Show
@@ -42,10 +46,16 @@ data Value =
     ValueModifier Char Value
     deriving Show
 
-data Instruction = Instruction String
+data Instruction = Instruction String (Maybe Value)
     deriving Show
 
 type Parser a = IndentParser String () a
+
+partitionTopLevel :: [TopLevelElement] -> ([SubBlock], [VariableDeclaration])
+partitionTopLevel = foldr dispatch ([], [])
+    where 
+        dispatch (ElementSubBlock b) (bs, vs) = (b:bs, vs)
+        dispatch (ElementVariable v) (bs, vs) = (bs, v:vs)
 
 parseFromFile :: Parser a -> String -> IO (Either ParseError a)
 parseFromFile p f = (runIndentParser p () f) <$> (readFile f)
@@ -85,11 +95,16 @@ identifierP :: Parser String
 identifierP = (:) <$> letter <*> (manyN 3 (alphaNum <|> (char '_')))
 
 instructionP :: Parser Instruction
-instructionP = Instruction <$> (count 3 letter)
+instructionP = Instruction <$> (count 3 letter) <* spacesP <*> (optionMaybe valueP) <* spacesP
+
+macroBlockP :: Parser Statement
+macroBlockP = withBlock (\(name, params) -> \block -> MacroStatement name params block)
+    ((,) <$> ((char '+') *> macroNameP <* spacesP) <*> (many macroParameterP) <* spaces)
+    (statementP <* spaces)
 
 statementP :: Parser Statement
-statementP =
-    MacroStatement <$> ((char '+') *> macroNameP <* spacesP) <*> (many macroParameterP) <|>
+statementP = 
+    macroBlockP <|>
     InstructionStatement <$> instructionP
 
 literalValueP :: Parser (Either Word8 Word16)
@@ -106,11 +121,13 @@ macroParameterP =
     ParameterValue <$> valueP <|> 
     ParameterInstruction <$> instructionP
 
+subHeaderP = (string "sub ") *> spacesP *> identifierP <* spacesP
+subHeaderAddressP = (char '=') *> spacesP *> (fromRight <$> literalValueP) <* spacesP
+
 subBlockP :: Parser SubBlock
-subBlockP = SubBlock
-    <$> ((string "sub ") *> spacesP *> identifierP <* spacesP)
-    <*> ((char '=') *> spacesP *> (fromRight <$> literalValueP) <* spacesP <* nextLineP)
-    <*> (many $ (try (count 4 space) *> statementP <* nextLineP))
+subBlockP = withBlock (\(name, addr) -> \block -> SubBlock name addr block)
+    ((,) <$> subHeaderP <*> subHeaderAddressP <* spaces)
+    (statementP <* spaces)
 
 variableAccessP :: Parser VariableAccess
 variableAccessP = (string "extern") >> (return Extern)

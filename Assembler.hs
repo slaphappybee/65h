@@ -41,10 +41,28 @@ splitReference :: ReferenceExpression -> [ObjectToken]
 splitReference (RelativeLocation i) = [Reference $ LowByte (RelativeLocation i), Reference $ HighByte (RelativeLocation i)]
 splitReference (ExternalReference n) = [Reference $ LowByte (ExternalReference n), Reference $ HighByte (ExternalReference n)]
 
+encodeOpcode :: String -> String -> ObjectToken
+encodeOpcode s a = Byte $ fromJust $ encode (Opcode s a)
+
+assembleInstruction :: String -> Maybe Value -> [ObjectToken]
+assembleInstruction s Nothing = [encodeOpcode s "Implied"]
+assembleInstruction s (Just (ValueIdentifier identifier)) = encodeOpcode s "Absolute" : (splitReference $ ExternalReference identifier)
+
+encodeForBranch :: Instruction -> Int -> [ObjectToken]
+encodeForBranch (Instruction "jmp" Nothing) l = (Byte $ fromJust $ encode $ Opcode "JMP" "Absolute") : (splitReference $ RelativeLocation (0-l-1))
+encodeForBranch (Instruction bi    Nothing) l = (Byte $ fromJust $ encode $ Opcode bi   "Immediate") : [Byte $ fromIntegral (0-l)]
+
+macroFor :: [MacroParameter] -> [Statement] -> [ObjectToken]
+macroFor [ParameterInstruction i] b = let assembledBlock = (concat $ map assembleStatement b) in
+    assembledBlock ++ (encodeForBranch i (length assembledBlock))
+
+macroRaw16 :: [MacroParameter] -> [Statement] -> [ObjectToken]
+macroRaw16 [ParameterValue (ValueModifier '#' (ValueIdentifier identifier))] [] = (splitReference $ ExternalReference identifier)
+
 assembleStatement :: Statement -> [ObjectToken]
-assembleStatement (InstructionStatement (Instruction s)) = [Byte $ fromJust $ encode (Opcode s "Implied")]
-assembleStatement (MacroStatement "for" [ParameterInstruction (Instruction "jmp")]) = (Byte $ fromJust $ encode $ Opcode "JMP" "Absolute") : (splitReference $ RelativeLocation (0-1))
-assembleStatement (MacroStatement "raw16" [ParameterValue (ValueModifier '#' (ValueIdentifier identifier))]) = (splitReference $ ExternalReference identifier)
+assembleStatement (InstructionStatement (Instruction s p)) = assembleInstruction s p
+assembleStatement (MacroStatement "for" p b) = macroFor p b
+assembleStatement (MacroStatement "raw16" p b) = macroRaw16 p b
 
 assembleBlock :: SubBlock -> TokenBlock (String, Word16)
 assembleBlock (SubBlock n a ss) = TokenBlock (n, a) (concat $ fmap assembleStatement ss)
@@ -68,16 +86,22 @@ resolveExprRefs :: [(String, Word16)] -> ReferenceExpression -> Word8
 resolveExprRefs symbols (LowByte (ExternalReference name)) = getLowByte $ findT1 symbols name
 resolveExprRefs symbols (HighByte (ExternalReference name)) = getHighByte $ findT1 symbols name
 
-resolveExpressions :: [TokenBlock (String, Word16)] -> [TokenBlock Word16]
-resolveExpressions blocks = let symbols = fmap blockIdentity blocks in
-    fmap (resolveBlockRefs symbols) blocks
+resolveExpressions :: [(String, Word16)] -> [TokenBlock (String, Word16)] -> [TokenBlock Word16]
+resolveExpressions symbols blocks = let allSymbols = symbols ++ (fmap blockIdentity blocks) in
+    fmap (resolveBlockRefs allSymbols) blocks
 
-resolveAll :: [TokenBlock (String, Word16)] -> [TokenBlock Word16]
-resolveAll = resolveExpressions . (fmap resolveRelativeLocations)
+resolveAll :: [(String, Word16)] -> [TokenBlock (String, Word16)] -> [TokenBlock Word16]
+resolveAll symbols = (resolveExpressions symbols) . (fmap resolveRelativeLocations)
+
+processVar :: VariableDeclaration -> (String, Word16)
+processVar (VariableDeclaration Extern W8 name addr) = (name, addr)
 
 unbox :: TokenBlock Word16 -> (Word16, [Word8])
 unbox (TokenBlock id bs) = (id, unboxB <$> bs)
     where unboxB t = case t of Byte b -> b
 
-assemble :: [SubBlock] -> [(Word16, [Word8])]
-assemble blocks = unbox <$> (resolveAll $ assembleBlock <$> blocks)
+assemble :: [TopLevelElement] -> [(Word16, [Word8])]
+assemble els = unbox <$> (resolveAll symbols $ assembleBlock <$> blocks)
+    where 
+        (blocks, vars) = partitionTopLevel els
+        symbols = map processVar vars
