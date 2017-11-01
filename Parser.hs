@@ -12,7 +12,12 @@ import Data.Word
 import Control.Monad
 import Control.Applicative ((<$>))
 import Text.Parsec
-import Text.Parsec.String
+import Text.Parsec.Indent
+
+data TopLevelElement =
+    ElementSubBlock SubBlock |
+    ElementVariable VariableDeclaration
+    deriving Show
 
 data SubBlock = SubBlock String Word16 [Statement]
     deriving Show
@@ -21,6 +26,10 @@ data Statement =
     InstructionStatement Instruction |
     MacroStatement String [MacroParameter]
     deriving Show
+
+data VariableAccess = Extern deriving Show
+data VariableType = W8 deriving Show
+data VariableDeclaration = VariableDeclaration VariableAccess VariableType String Word16 deriving Show
 
 data MacroParameter =
     ParameterInstruction Instruction |
@@ -36,11 +45,22 @@ data Value =
 data Instruction = Instruction String
     deriving Show
 
+type Parser a = IndentParser String () a
+
+parseFromFile :: Parser a -> String -> IO (Either ParseError a)
+parseFromFile p f = (runIndentParser p () f) <$> (readFile f)
+
 manyN :: Int -> Parser a -> Parser [a]
 manyN n p = (++) <$> (count n p) <*> (many p)
 
 spacesP :: Parser String
 spacesP = many (char ' ')
+
+blankLineP :: Parser String
+blankLineP = spacesP <* newline
+
+nextLineP :: Parser ()
+nextLineP = newline *> (many $ try blankLineP) >> (pure ())
 
 fromRight :: Either a b -> b
 fromRight (Right b) = b
@@ -86,17 +106,22 @@ macroParameterP =
     ParameterValue <$> valueP <|> 
     ParameterInstruction <$> instructionP
 
-blankLineP :: Parser String
-blankLineP = spacesP <* newline
-
 subBlockP :: Parser SubBlock
 subBlockP = SubBlock
     <$> ((string "sub ") *> spacesP *> identifierP <* spacesP)
-    <*> ((char '=') *> spacesP *> (fromRight <$> literalValueP) <* spacesP <* newline)
-    <*> ((many $ (try ((count 4 space) *> statementP <* newline) <* (many $ try blankLineP))))
+    <*> ((char '=') *> spacesP *> (fromRight <$> literalValueP) <* spacesP <* nextLineP)
+    <*> (many $ (try (count 4 space) *> statementP <* nextLineP))
 
-fileP :: Parser [SubBlock]
-fileP = many subBlockP
+variableAccessP :: Parser VariableAccess
+variableAccessP = (string "extern") >> (return Extern)
+variableTypeP :: Parser VariableType
+variableTypeP = (string "w8") >> (return W8)
 
-parseFile :: String -> IO (Either ParseError [SubBlock])
+variableDeclarationP :: Parser VariableDeclaration
+variableDeclarationP = VariableDeclaration <$> (variableAccessP <* spacesP) <*> (variableTypeP <* spacesP) <*> (identifierP <* spacesP) <*> (char '=' *> spacesP *> (fromRight <$> literalValueP) <* nextLineP)
+
+fileP :: Parser [TopLevelElement]
+fileP = (many (ElementSubBlock <$> subBlockP <|> ElementVariable <$> variableDeclarationP)) <* eof
+
+parseFile :: String -> IO (Either ParseError [TopLevelElement])
 parseFile = parseFromFile fileP
