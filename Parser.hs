@@ -6,12 +6,13 @@ module Parser (
     Instruction (Instruction),
     parseFile) where
 
-import Text.ParserCombinators.Parsec
 import Data.Maybe
 import Data.Char
 import Data.Word
 import Control.Monad
 import Control.Applicative ((<$>))
+import Text.Parsec
+import Text.Parsec.String
 
 data SubBlock = SubBlock String Word16 [Statement]
     deriving Show
@@ -35,10 +36,10 @@ data Value =
 data Instruction = Instruction String
     deriving Show
 
-manyN :: Int -> GenParser Char st a -> GenParser Char st [a]
+manyN :: Int -> Parser a -> Parser [a]
 manyN n p = (++) <$> (count n p) <*> (many p)
 
-spacesP :: GenParser Char st String
+spacesP :: Parser String
 spacesP = many (char ' ')
 
 fromRight :: Either a b -> b
@@ -57,44 +58,44 @@ hexValue s = let intValue = parseHex s in
         then Right (fromIntegral intValue)
         else Left (fromIntegral intValue)
 
-macroNameP :: GenParser Char st String
+macroNameP :: Parser String
 macroNameP = (:) <$> letter <*> (many (alphaNum <|> (char '_')))
 
-identifierP :: GenParser Char st String
+identifierP :: Parser String
 identifierP = (:) <$> letter <*> (manyN 3 (alphaNum <|> (char '_')))
 
-instructionP :: GenParser Char st Instruction
+instructionP :: Parser Instruction
 instructionP = Instruction <$> (count 3 letter)
 
-statementP :: GenParser Char st Statement
+statementP :: Parser Statement
 statementP =
     MacroStatement <$> ((char '+') *> macroNameP <* spacesP) <*> (many macroParameterP) <|>
     InstructionStatement <$> instructionP
 
-literalValueP :: GenParser Char st (Either Word8 Word16)
+literalValueP :: Parser (Either Word8 Word16)
 literalValueP = hexValue <$> ((char '$') *> (many1 hexDigit))
 
-valueP :: GenParser Char st Value
+valueP :: Parser Value
 valueP =
     ValueModifier <$> (char '#') <*> valueP <|>
     ValueLiteral <$> literalValueP <|>
     ValueIdentifier <$> (try $ identifierP)
 
-macroParameterP :: GenParser Char st MacroParameter
+macroParameterP :: Parser MacroParameter
 macroParameterP = 
     ParameterValue <$> valueP <|> 
     ParameterInstruction <$> instructionP
 
-blankLineP :: GenParser Char st String
+blankLineP :: Parser String
 blankLineP = spacesP <* newline
 
-subBlockP :: GenParser Char st SubBlock
+subBlockP :: Parser SubBlock
 subBlockP = SubBlock
     <$> ((string "sub ") *> spacesP *> identifierP <* spacesP)
     <*> ((char '=') *> spacesP *> (fromRight <$> literalValueP) <* spacesP <* newline)
     <*> ((many $ (try ((count 4 space) *> statementP <* newline) <* (many $ try blankLineP))))
 
-fileP :: GenParser Char st [SubBlock]
+fileP :: Parser [SubBlock]
 fileP = many subBlockP
 
 parseFile :: String -> IO (Either ParseError [SubBlock])
