@@ -1,0 +1,20 @@
+%YAML 1.2
+---
+name: 65hasm
+file_extensions: asm
+scope: source.hasm
+
+contexts:
+  main:
+    - match: \b(const|extern)\b
+      scope: storage.modifier.hasm
+    - match: \b(w16|w8)
+      scope: storage.type.hasm
+    - match: \b(sub)\b
+      scope: keyword.control.hasm
+    - match: \+\w+
+      scope: support.function
+    - match: \#?\$\w+
+      scope: constant.numeric.hasm
+    - match: "\\b[a-zA-Z]{3}\\b"
+      scope: entity.name.function
