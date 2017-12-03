@@ -1,7 +1,7 @@
 import Data.Tuple
 import Data.Word
 import Data.List
-import Data.ByteString (pack, writeFile)
+import Data.ByteString (ByteString, pack, writeFile, readFile, append)
 import System.Environment (getArgs)
 
 import Assembler
@@ -12,12 +12,11 @@ import INESFormat
 toi :: Integral a => a -> Int
 toi = fromIntegral
 
-writeINESFile :: String -> [(Word16, [Word8])] -> IO ()
-writeINESFile filename prg = let
+writeINESFile :: String -> [(Word16, [Word8])] -> ByteString -> IO ()
+writeINESFile filename prg chr = let
     headerRaw = generateHeader $ mkHeader 16 8 0
     prgRaw = buildPRG prg
-    chrRaw = [0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff]  ++ (replicate (8 * 1023) 0)
-    bs = pack (headerRaw ++ prgRaw ++ chrRaw)
+    bs = append (pack (headerRaw ++ prgRaw)) chr
     in Data.ByteString.writeFile filename bs
 
 buildImage :: Int -> Word16 -> [(Word16, [Word8])] -> [Word8]
@@ -38,9 +37,10 @@ buildPRG blocks = let
 assembleFile :: String -> IO ()
 assembleFile filename = do
     parsedFile <- parseFile filename
+    chr <- Data.ByteString.readFile (filename ++ ".chr")
     case parsedFile of
         Left pa -> putStrLn "Parse error"
-        Right blocks -> writeINESFile (filename ++ ".nes") (assemble blocks)
+        Right blocks -> writeINESFile (filename ++ ".nes") (assemble blocks) chr
 
 main :: IO ()
 main = do
