@@ -8,6 +8,7 @@ import Spec
 import Data.Word
 import Data.Maybe (fromJust, maybeToList)
 import Data.List (find)
+import Data.Char (ord)
 
 data TokenBlock identity = TokenBlock {
     blockIdentity :: identity,
@@ -73,8 +74,9 @@ macroFor [b]     ss = buildForLoop []        b []        ss
 macroFor [s,b,i] ss = buildForLoop (pToSS s) b (pToSS i) ss
 
 macroRaw8 :: [MacroParameter] -> [ObjectToken]
-macroRaw8 vals = fmap unboxImmediate8 vals
-    where unboxImmediate8 (ParameterValue (AddressingAbsolute (ValueModifier '#' (ValueLiteral (Left b))))) = Byte b
+macroRaw8 vals = concat (fmap unboxImmediate8 vals)
+    where unboxImmediate8 (ParameterValue (AddressingAbsolute (ValueModifier '#' (ValueLiteral (Left b))))) = [Byte b]
+          unboxImmediate8 (ParameterString s) = fmap (Byte . fromIntegral . ord) s
 
 macroRaw16 :: [MacroParameter] -> [ObjectToken]
 macroRaw16 [ParameterValue (AddressingAbsolute (ValueModifier '#' (ValueIdentifier identifier)))] = (splitReference $ ExternalReference identifier)

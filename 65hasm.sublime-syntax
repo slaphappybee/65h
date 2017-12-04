@@ -18,3 +18,12 @@ contexts:
       scope: constant.numeric.hasm
     - match: "\\b[a-zA-Z]{3}\\b"
       scope: entity.name.function
+    - match: '"'
+      push: string
+
+  string:
+    - meta_scope: string.quoted.double.hasm
+    - match: \\.
+      scope: constant.character.escape.hasm
+    - match: '"'
+      pop: true

@@ -6,7 +6,7 @@ module Parser (
     AddressingParameter (AddressingAbsolute, AddressingRelative),
     TopLevelElement (ElementVariable, ElementSubBlock), partitionTopLevel,
     Statement (InstructionStatement, MacroStatement),
-    MacroParameter (ParameterInstruction, ParameterValue),
+    MacroParameter (ParameterInstruction, ParameterValue, ParameterString),
     Value (ValueLiteral, ValueIdentifier, ValueModifier),
     Instruction (Instruction),
     parseFile) where
@@ -46,7 +46,8 @@ data VariableDeclaration = VariableDeclaration VariableAccess VariableType Strin
 
 data MacroParameter =
     ParameterInstruction Instruction |
-    ParameterValue AddressingParameter
+    ParameterValue AddressingParameter |
+    ParameterString String
     deriving Show
 
 data AddressingParameter =
@@ -135,10 +136,14 @@ valueP =
     ValueLiteral <$> literalValueP <|>
     ValueIdentifier <$> (try $ identifierP)
 
+stringLiteralP :: Parser String
+stringLiteralP = between (char '"') (char '"') (many $ noneOf "\"")
+
 macroParameterP :: Parser MacroParameter
 macroParameterP = 
     ParameterValue <$> addressingParameterP <|> 
-    ParameterInstruction <$> instructionP
+    ParameterInstruction <$> instructionP <|>
+    ParameterString <$> stringLiteralP
 
 subHeaderP = (string "sub ") *> spacesP *> identifierP <* spacesP
 subHeaderAddressP = (char '=') *> spacesP *> (fromRight <$> literalValueP) <* spacesP
