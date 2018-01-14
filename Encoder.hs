@@ -1,3 +1,10 @@
+module Encoder (
+    fromRightImageRGB8,
+    writeCHR,
+    encodeAll,
+    palettes
+) where
+
 import Codec.Picture
 import Data.Either
 import Data.List
@@ -11,9 +18,6 @@ type Palette4 b = [b]
 
 fromRightImageRGB8 :: Either String DynamicImage -> Image PixelRGB8
 fromRightImageRGB8 (Right (ImageRGB8 image)) = image
-
-fontFile = "samples\\text-files\\font.bmp"
-paletteFile = "samples\\text-files\\palette.bmp"
 
 pixelAtT :: Pixel b => Image b -> (Int, Int) -> b
 pixelAtT img (x, y) = pixelAt img x y
@@ -56,11 +60,3 @@ formatBlock l = "    +raw8 " ++ (intercalate " " $ map (printf "#$%02x") l)
 
 writeCHR :: String -> [[Int]] -> IO ()
 writeCHR filename bytes = Data.ByteString.writeFile filename $ pack $ fromIntegral <$> concat bytes
-
-main :: IO ()
-main = do
-    args <- getArgs
-    img <- fromRightImageRGB8 <$> readImage fontFile
-    pal <- fromRightImageRGB8 <$> readImage paletteFile
-    writeCHR "font.chr" $ encodeAll (head $ palettes pal) img
-    --putStr $ unlines $ formatBlock <$> encodeAll (head $ palettes pal) img

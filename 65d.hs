@@ -149,4 +149,7 @@ formatHeader (INESHeader sig prgRomSize chrRomSize prgRamSize _) =
 main :: IO ()
 main = do
     args <- getArgs
-    unlines <$> disassembleFile (head args) >>= putStr
+    if (length args) < 1 then
+        putStrLn "Usage: 65d <file>"
+    else
+        unlines <$> disassembleFile (head args) >>= putStr

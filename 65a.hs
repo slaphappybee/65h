@@ -45,4 +45,7 @@ assembleFile filename = do
 main :: IO ()
 main = do
     args <- getArgs
-    assembleFile $ head args
+    if (length args) < 1 then
+        putStrLn "Usage: 65a <file>"
+    else
+        assembleFile $ head args
