@@ -3,21 +3,11 @@ import Data.Word
 import Data.List
 import Data.ByteString (ByteString, pack, writeFile, readFile, append)
 import System.Environment (getArgs)
+import System.FilePath
 
 import Assembler
 import Parser
 import Spec
-import INESFormat
-
-toi :: Integral a => a -> Int
-toi = fromIntegral
-
-writeINESFile :: String -> [(Word16, [Word8])] -> ByteString -> IO ()
-writeINESFile filename prg chr = let
-    headerRaw = generateHeader $ mkHeader 16 8 0
-    prgRaw = buildPRG prg
-    bs = append (pack (headerRaw ++ prgRaw)) chr
-    in Data.ByteString.writeFile filename bs
 
 buildImage :: Int -> Word16 -> [(Word16, [Word8])] -> [Word8]
 buildImage size _    []     = replicate size 0
@@ -34,18 +24,20 @@ buildPRG blocks = let
     sortedBlocks = sortBy compareFirsts blocks in
     buildImage (16 * 1024) 0xc000 blocks
 
-assembleFile :: String -> IO ()
-assembleFile filename = do
+assembleFile :: String -> String -> IO ()
+assembleFile output filename = do
     parsedFile <- parseFile filename
-    chr <- Data.ByteString.readFile (filename ++ ".chr")
     case parsedFile of
-        Left pa -> putStrLn "Parse error"
-        Right blocks -> writeINESFile (filename ++ ".nes") (assemble blocks) chr
+        Left _ -> putStrLn "Parse error"
+        Right blocks -> Data.ByteString.writeFile output (pack $ buildPRG $ assemble blocks)
 
 main :: IO ()
 main = do
     args <- getArgs
+    let inputFile = head args
+    let outputFile = addExtension inputFile ".prg"
+
     if (length args) < 1 then
         putStrLn "Usage: 65a <file>"
     else
-        assembleFile $ head args
+        assembleFile outputFile inputFile
